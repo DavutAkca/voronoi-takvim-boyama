@@ -3,8 +3,13 @@
  * Tüm veriler tarayıcıda yerel olarak saklanır (IndexedDB)
  */
 
-(function() {
+// Debug: Confirm script is loading
+console.log('[VoronoiApp] Script loading started...');
+
+(function () {
     'use strict';
+
+    console.log('[VoronoiApp] IIFE executing...');
 
     // ===== Configuration =====
     const CONFIG = {
@@ -40,12 +45,23 @@
 
     // ===== Initialize Application =====
     async function init() {
-        cacheElements();
-        await initDB();
-        setupEventListeners();
-        await loadSavedImage();
-        updateUI();
-        registerServiceWorker();
+        console.log('[VoronoiApp] init() starting...');
+        try {
+            cacheElements();
+            console.log('[VoronoiApp] Elements cached');
+            await initDB();
+            console.log('[VoronoiApp] IndexedDB initialized');
+            setupEventListeners();
+            console.log('[VoronoiApp] Event listeners attached');
+            await loadSavedImage();
+            console.log('[VoronoiApp] Saved image loaded (if any)');
+            updateUI();
+            console.log('[VoronoiApp] UI updated');
+            registerServiceWorker();
+            console.log('[VoronoiApp] ✅ Initialization complete!');
+        } catch (error) {
+            console.error('[VoronoiApp] ❌ Initialization error:', error);
+        }
     }
 
     function cacheElements() {
@@ -57,7 +73,7 @@
         elements.noteIndicator = document.getElementById('noteIndicator');
         elements.notesList = document.getElementById('notesList');
         elements.notesPanel = document.getElementById('notesPanel');
-        
+
         // Buttons
         elements.uploadBtn = document.getElementById('uploadBtn');
         elements.uploadBtnText = document.getElementById('uploadBtnText');
@@ -72,12 +88,12 @@
         elements.importJsonInput = document.getElementById('importJsonInput');
         elements.helpBtn = document.getElementById('helpBtn');
         elements.toggleNoteModeBtn = document.getElementById('toggleNoteModeBtn');
-        
+
         // Color buttons
         elements.colorBtns = document.querySelectorAll('.color-btn[data-color]');
         elements.customColorBtn = document.getElementById('customColorBtn');
         elements.customColorPicker = document.getElementById('customColorPicker');
-        
+
         // Modals
         elements.helpModal = document.getElementById('helpModal');
         elements.closeHelpBtn = document.getElementById('closeHelpBtn');
@@ -85,13 +101,13 @@
         elements.noteInput = document.getElementById('noteInput');
         elements.saveNoteBtn = document.getElementById('saveNoteBtn');
         elements.cancelNoteBtn = document.getElementById('cancelNoteBtn');
-        
+
         // Context menu
         elements.contextMenu = document.getElementById('contextMenu');
         elements.addNoteBtn = document.getElementById('addNoteBtn');
         elements.viewNoteBtn = document.getElementById('viewNoteBtn');
         elements.deleteNoteBtn = document.getElementById('deleteNoteBtn');
-        
+
         // Toast container
         elements.toastContainer = document.getElementById('toastContainer');
 
@@ -117,18 +133,18 @@
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
-                
+
                 // Images store
                 if (!db.objectStoreNames.contains(CONFIG.STORE_IMAGES)) {
                     db.createObjectStore(CONFIG.STORE_IMAGES, { keyPath: 'id' });
                 }
-                
+
                 // Operations store
                 if (!db.objectStoreNames.contains(CONFIG.STORE_OPERATIONS)) {
                     const opStore = db.createObjectStore(CONFIG.STORE_OPERATIONS, { keyPath: 'id', autoIncrement: true });
                     opStore.createIndex('imageId', 'imageId', { unique: false });
                 }
-                
+
                 // Notes store
                 if (!db.objectStoreNames.contains(CONFIG.STORE_NOTES)) {
                     const notesStore = db.createObjectStore(CONFIG.STORE_NOTES, { keyPath: 'id', autoIncrement: true });
@@ -155,7 +171,7 @@
         try {
             const store = dbTransaction(CONFIG.STORE_IMAGES);
             const images = await dbRequest(store, 'getAll');
-            
+
             if (images.length > 0) {
                 const imageData = images[0];
                 state.currentImageId = imageData.id;
@@ -172,19 +188,19 @@
     async function saveImage(blob) {
         try {
             const store = dbTransaction(CONFIG.STORE_IMAGES, 'readwrite');
-            
+
             // Clear existing images first
             await dbRequest(store, 'clear');
-            
+
             // Save new image
             const id = Date.now().toString();
             await dbRequest(store, 'put', { id, blob, savedAt: new Date().toISOString() });
             state.currentImageId = id;
-            
+
             // Clear previous operations and notes when new image is uploaded
             await clearOperations();
             await clearNotes();
-            
+
             return id;
         } catch (error) {
             console.error('Error saving image:', error);
@@ -197,7 +213,7 @@
         return new Promise((resolve, reject) => {
             const url = URL.createObjectURL(blob);
             const img = new Image();
-            
+
             img.onload = () => {
                 state.canvas.width = img.width;
                 state.canvas.height = img.height;
@@ -205,19 +221,19 @@
                 state.originalImageData = state.ctx.getImageData(0, 0, img.width, img.height);
                 state.currentImageData = state.ctx.getImageData(0, 0, img.width, img.height);
                 URL.revokeObjectURL(url);
-                
+
                 elements.canvas.classList.add('visible');
                 elements.placeholder.classList.add('hidden');
                 elements.uploadBtnText.textContent = 'Görseli Değiştir';
-                
+
                 resolve();
             };
-            
+
             img.onerror = () => {
                 URL.revokeObjectURL(url);
                 reject(new Error('Görsel yüklenemedi'));
             };
-            
+
             img.src = url;
         });
     }
@@ -225,36 +241,36 @@
     function handleImageUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
-        
+
         if (!file.type.match(/^image\/(png|jpeg|jpg)$/)) {
             showToast('Lütfen PNG veya JPG formatında bir görsel seçin.', 'error');
             return;
         }
-        
+
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
                 const blob = new Blob([e.target.result], { type: file.type });
                 await saveImage(blob);
                 await loadImageFromBlob(blob);
-                
+
                 // Reset state
                 state.undoStack = [];
                 state.redoStack = [];
                 state.operations = [];
                 state.notes = [];
-                
+
                 updateUI();
                 showToast('Görsel başarıyla yüklendi!', 'success');
             } catch (error) {
                 showToast('Görsel yüklenirken bir hata oluştu.', 'error');
             }
         };
-        
+
         reader.onerror = () => {
             showToast('Dosya okunamadı.', 'error');
         };
-        
+
         reader.readAsArrayBuffer(file);
         event.target.value = ''; // Reset input
     }
@@ -276,9 +292,9 @@
             const store = dbTransaction(CONFIG.STORE_OPERATIONS);
             const index = store.index('imageId');
             const operations = await dbRequest(index, 'getAll', state.currentImageId);
-            
+
             state.operations = operations.sort((a, b) => a.timestamp - b.timestamp);
-            
+
             // Replay operations
             for (const op of state.operations) {
                 replayOperation(op);
@@ -299,7 +315,7 @@
             const store = dbTransaction(CONFIG.STORE_OPERATIONS, 'readwrite');
             const index = store.index('imageId');
             const request = index.openCursor(IDBKeyRange.only(state.currentImageId));
-            
+
             return new Promise((resolve, reject) => {
                 request.onsuccess = (event) => {
                     const cursor = event.target.result;
@@ -372,7 +388,7 @@
             const store = dbTransaction(CONFIG.STORE_NOTES, 'readwrite');
             const index = store.index('imageId');
             const request = index.openCursor(IDBKeyRange.only(state.currentImageId));
-            
+
             return new Promise((resolve, reject) => {
                 request.onsuccess = (event) => {
                     const cursor = event.target.result;
@@ -397,7 +413,7 @@
             elements.notesList.innerHTML = '<p class="no-notes">Henüz not eklenmedi</p>';
             return;
         }
-        
+
         elements.notesList.innerHTML = state.notes.map(note => `
             <div class="note-item" data-note-id="${note.id}" data-x="${note.x}" data-y="${note.y}">
                 <div class="note-item-header">
@@ -412,36 +428,36 @@
     // ===== Flood Fill Algorithm =====
     function floodFill(startX, startY, fillColor, saveOp = true) {
         if (!state.currentImageData) return;
-        
+
         const width = state.canvas.width;
         const height = state.canvas.height;
         const imageData = state.ctx.getImageData(0, 0, width, height);
         const data = imageData.data;
-        
+
         startX = Math.floor(startX);
         startY = Math.floor(startY);
-        
+
         if (startX < 0 || startX >= width || startY < 0 || startY >= height) return;
-        
+
         const startIdx = (startY * width + startX) * 4;
         const startR = data[startIdx];
         const startG = data[startIdx + 1];
         const startB = data[startIdx + 2];
-        
+
         // Parse fill color
         const fillRGB = hexToRgb(fillColor);
         if (!fillRGB) return;
-        
+
         // Check if starting on a boundary (dark line)
         if (isDarkBoundary(startR, startG, startB)) {
             return; // Don't fill boundary lines
         }
-        
+
         // Check if already this color
         if (startR === fillRGB.r && startG === fillRGB.g && startB === fillRGB.b) {
             return;
         }
-        
+
         // Save state for undo (before fill)
         if (saveOp) {
             const undoData = state.ctx.getImageData(0, 0, width, height);
@@ -455,46 +471,46 @@
             }
             state.redoStack = [];
         }
-        
+
         // Flood fill using queue
         const queue = [[startX, startY]];
         const visited = new Set();
-        
+
         while (queue.length > 0) {
             const [x, y] = queue.shift();
             const key = `${x},${y}`;
-            
+
             if (visited.has(key)) continue;
             if (x < 0 || x >= width || y < 0 || y >= height) continue;
-            
+
             const idx = (y * width + x) * 4;
             const r = data[idx];
             const g = data[idx + 1];
             const b = data[idx + 2];
-            
+
             // Check if this is a boundary
             if (isDarkBoundary(r, g, b)) continue;
-            
+
             // Check if similar to start color (anti-alias tolerance)
             if (!isColorSimilar(r, g, b, startR, startG, startB, CONFIG.ANTI_ALIAS_TOLERANCE)) {
                 continue;
             }
-            
+
             visited.add(key);
-            
+
             // Fill pixel
             data[idx] = fillRGB.r;
             data[idx + 1] = fillRGB.g;
             data[idx + 2] = fillRGB.b;
             data[idx + 3] = 255;
-            
+
             // Add neighbors
             queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
         }
-        
+
         state.ctx.putImageData(imageData, 0, 0);
         state.currentImageData = imageData;
-        
+
         // Save operation
         if (saveOp) {
             const operation = {
@@ -506,7 +522,7 @@
             };
             saveOperation(operation);
         }
-        
+
         updateUI();
     }
 
@@ -518,8 +534,8 @@
 
     function isColorSimilar(r1, g1, b1, r2, g2, b2, tolerance) {
         return Math.abs(r1 - r2) <= tolerance &&
-               Math.abs(g1 - g2) <= tolerance &&
-               Math.abs(b1 - b2) <= tolerance;
+            Math.abs(g1 - g2) <= tolerance &&
+            Math.abs(b1 - b2) <= tolerance;
     }
 
     function hexToRgb(hex) {
@@ -534,19 +550,19 @@
     // ===== Undo / Redo =====
     function undo() {
         if (state.undoStack.length === 0) return;
-        
+
         const current = {
             type: 'imageData',
             data: state.ctx.getImageData(0, 0, state.canvas.width, state.canvas.height),
             operations: [...state.operations]
         };
         state.redoStack.push(current);
-        
+
         const previous = state.undoStack.pop();
         state.ctx.putImageData(previous.data, 0, 0);
         state.currentImageData = previous.data;
         state.operations = previous.operations;
-        
+
         saveAllOperations();
         updateUI();
         showToast('Geri alındı', 'info');
@@ -554,19 +570,19 @@
 
     function redo() {
         if (state.redoStack.length === 0) return;
-        
+
         const current = {
             type: 'imageData',
             data: state.ctx.getImageData(0, 0, state.canvas.width, state.canvas.height),
             operations: [...state.operations]
         };
         state.undoStack.push(current);
-        
+
         const next = state.redoStack.pop();
         state.ctx.putImageData(next.data, 0, 0);
         state.currentImageData = next.data;
         state.operations = next.operations;
-        
+
         saveAllOperations();
         updateUI();
         showToast('İleri alındı', 'info');
@@ -574,15 +590,15 @@
 
     function reset() {
         if (!state.originalImageData) return;
-        
+
         if (!confirm('Tüm boyama işlemleri silinecek. Emin misiniz?')) return;
-        
+
         state.ctx.putImageData(state.originalImageData, 0, 0);
         state.currentImageData = state.ctx.getImageData(0, 0, state.canvas.width, state.canvas.height);
         state.undoStack = [];
         state.redoStack = [];
         state.operations = [];
-        
+
         clearOperations();
         updateUI();
         showToast('Tüm boyamalar sıfırlandı', 'info');
@@ -594,12 +610,12 @@
             showToast('Önce bir görsel yükleyin.', 'error');
             return;
         }
-        
+
         const link = document.createElement('a');
         link.download = `voronoi-takvim-${formatDateForFilename()}.png`;
         link.href = state.canvas.toDataURL('image/png');
         link.click();
-        
+
         showToast('PNG olarak indirildi!', 'success');
     }
 
@@ -608,7 +624,7 @@
             showToast('Önce bir görsel yükleyin.', 'error');
             return;
         }
-        
+
         const backup = {
             version: 1,
             exportedAt: new Date().toISOString(),
@@ -616,53 +632,53 @@
             operations: state.operations,
             notes: state.notes
         };
-        
+
         const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
         const link = document.createElement('a');
         link.download = `voronoi-yedek-${formatDateForFilename()}.json`;
         link.href = URL.createObjectURL(blob);
         link.click();
         URL.revokeObjectURL(link.href);
-        
+
         showToast('Yedek alındı!', 'success');
     }
 
     async function importJson(event) {
         const file = event.target.files[0];
         if (!file) return;
-        
+
         try {
             const text = await file.text();
             const backup = JSON.parse(text);
-            
+
             if (!backup.version || !backup.operations) {
                 throw new Error('Geçersiz yedek dosyası');
             }
-            
+
             if (!state.originalImageData) {
                 showToast('Önce bir görsel yükleyin, sonra yedeği içe aktarın.', 'error');
                 return;
             }
-            
+
             // Reset to original
             state.ctx.putImageData(state.originalImageData, 0, 0);
             state.undoStack = [];
             state.redoStack = [];
             state.operations = [];
-            
+
             // Replay operations
             for (const op of backup.operations) {
                 replayOperation(op);
                 state.operations.push(op);
             }
-            
+
             // Import notes
             await clearNotes();
             for (const note of (backup.notes || [])) {
                 delete note.id; // Let DB assign new IDs
                 await saveNote(note);
             }
-            
+
             saveAllOperations();
             updateUI();
             showToast('Yedek başarıyla yüklendi!', 'success');
@@ -670,7 +686,7 @@
             console.error('Import error:', error);
             showToast('Yedek dosyası okunamadı: ' + error.message, 'error');
         }
-        
+
         event.target.value = '';
     }
 
@@ -680,7 +696,7 @@
         elements.uploadBtn.addEventListener('click', () => elements.imageInput.click());
         elements.placeholderUploadBtn.addEventListener('click', () => elements.imageInput.click());
         elements.imageInput.addEventListener('change', handleImageUpload);
-        
+
         // Color selection
         elements.colorBtns.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -688,24 +704,24 @@
                 setActiveColor(color, btn);
             });
         });
-        
+
         elements.customColorPicker.addEventListener('input', (e) => {
             const color = e.target.value;
             setActiveColor(color, elements.customColorBtn);
             elements.customColorBtn.querySelector('.custom-swatch').style.background = color;
             elements.customColorBtn.querySelector('.custom-swatch').textContent = '';
         });
-        
+
         elements.customColorBtn.addEventListener('click', (e) => {
             if (e.target !== elements.customColorPicker) {
                 elements.customColorPicker.click();
             }
         });
-        
+
         // Canvas interactions
         elements.canvas.addEventListener('click', handleCanvasClick);
         elements.canvas.addEventListener('contextmenu', handleCanvasRightClick);
-        
+
         // Actions
         elements.undoBtn.addEventListener('click', undo);
         elements.redoBtn.addEventListener('click', redo);
@@ -714,7 +730,7 @@
         elements.exportJsonBtn.addEventListener('click', exportJson);
         elements.importJsonBtn.addEventListener('click', () => elements.importJsonInput.click());
         elements.importJsonInput.addEventListener('change', importJson);
-        
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'z') {
@@ -725,7 +741,7 @@
                 redo();
             }
         });
-        
+
         // Help modal
         elements.helpBtn.addEventListener('click', () => {
             elements.helpModal.hidden = false;
@@ -738,7 +754,7 @@
                 elements.helpModal.hidden = true;
             }
         });
-        
+
         // Note mode
         elements.toggleNoteModeBtn.addEventListener('click', () => {
             state.noteMode = !state.noteMode;
@@ -746,7 +762,7 @@
             elements.toggleNoteModeBtn.classList.toggle('btn-primary', state.noteMode);
             updateStatus();
         });
-        
+
         // Note modal
         elements.saveNoteBtn.addEventListener('click', handleSaveNote);
         elements.cancelNoteBtn.addEventListener('click', () => {
@@ -761,7 +777,7 @@
                 state.pendingNotePosition = null;
             }
         });
-        
+
         // Context menu
         elements.addNoteBtn.addEventListener('click', () => {
             elements.contextMenu.hidden = true;
@@ -782,14 +798,14 @@
             }
             elements.contextMenu.hidden = true;
         });
-        
+
         // Close context menu on click outside
         document.addEventListener('click', (e) => {
             if (!elements.contextMenu.contains(e.target)) {
                 elements.contextMenu.hidden = true;
             }
         });
-        
+
         // Note item clicks
         elements.notesList.addEventListener('click', (e) => {
             const noteItem = e.target.closest('.note-item');
@@ -803,13 +819,13 @@
 
     function handleCanvasClick(e) {
         if (!state.currentImageData) return;
-        
+
         const rect = state.canvas.getBoundingClientRect();
         const scaleX = state.canvas.width / rect.width;
         const scaleY = state.canvas.height / rect.height;
         const x = Math.floor((e.clientX - rect.left) * scaleX);
         const y = Math.floor((e.clientY - rect.top) * scaleY);
-        
+
         if (state.noteMode) {
             state.pendingNotePosition = { x, y };
             openNoteModal();
@@ -821,24 +837,24 @@
     function handleCanvasRightClick(e) {
         e.preventDefault();
         if (!state.currentImageData) return;
-        
+
         const rect = state.canvas.getBoundingClientRect();
         const scaleX = state.canvas.width / rect.width;
         const scaleY = state.canvas.height / rect.height;
         const x = Math.floor((e.clientX - rect.left) * scaleX);
         const y = Math.floor((e.clientY - rect.top) * scaleY);
-        
+
         state.pendingNotePosition = { x, y };
-        
+
         // Check if there's a note at this position
         const existingNote = findNoteNear(x, y);
-        
+
         elements.viewNoteBtn.hidden = !existingNote;
         elements.deleteNoteBtn.hidden = !existingNote;
         if (existingNote) {
             elements.contextMenu.dataset.noteId = existingNote.id;
         }
-        
+
         // Position context menu
         elements.contextMenu.style.left = `${e.clientX}px`;
         elements.contextMenu.style.top = `${e.clientY}px`;
@@ -865,9 +881,9 @@
             showToast('Lütfen bir not girin.', 'error');
             return;
         }
-        
+
         if (!state.pendingNotePosition) return;
-        
+
         const note = {
             x: state.pendingNotePosition.x,
             y: state.pendingNotePosition.y,
@@ -875,13 +891,13 @@
             color: state.currentColor,
             timestamp: Date.now()
         };
-        
+
         await saveNote(note);
-        
+
         elements.noteModal.hidden = true;
         elements.noteInput.value = '';
         state.pendingNotePosition = null;
-        
+
         showToast('Not kaydedildi!', 'success');
     }
 
@@ -889,13 +905,13 @@
         // Briefly highlight the position on canvas
         const ctx = state.ctx;
         const currentData = ctx.getImageData(0, 0, state.canvas.width, state.canvas.height);
-        
+
         ctx.beginPath();
         ctx.arc(x, y, 20, 0, 2 * Math.PI);
         ctx.strokeStyle = '#6366f1';
         ctx.lineWidth = 3;
         ctx.stroke();
-        
+
         setTimeout(() => {
             ctx.putImageData(currentData, 0, 0);
         }, 1000);
@@ -917,7 +933,7 @@
         elements.exportPngBtn.disabled = !state.currentImageData;
         elements.exportJsonBtn.disabled = !state.currentImageId;
         elements.importJsonBtn.disabled = !state.originalImageData;
-        
+
         updateStatus();
     }
 
@@ -949,9 +965,9 @@
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         toast.textContent = message;
-        
+
         elements.toastContainer.appendChild(toast);
-        
+
         setTimeout(() => {
             toast.style.animation = 'toastOut 0.3s ease forwards';
             setTimeout(() => toast.remove(), 300);
@@ -983,16 +999,22 @@
     // ===== Service Worker =====
     function registerServiceWorker() {
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
-                .then(() => console.log('Service Worker registered'))
-                .catch(err => console.log('Service Worker registration failed:', err));
+            // Use relative path with ./ for GitHub Pages compatibility
+            navigator.serviceWorker.register('./sw.js')
+                .then(() => console.log('[VoronoiApp] Service Worker registered'))
+                .catch(err => console.log('[VoronoiApp] Service Worker registration failed:', err));
         }
     }
 
     // ===== Start Application =====
+    console.log('[VoronoiApp] Document readyState:', document.readyState);
     if (document.readyState === 'loading') {
+        console.log('[VoronoiApp] Waiting for DOMContentLoaded...');
         document.addEventListener('DOMContentLoaded', init);
     } else {
+        console.log('[VoronoiApp] DOM ready, calling init() directly...');
         init();
     }
 })();
+
+console.log('[VoronoiApp] Script fully parsed.');
